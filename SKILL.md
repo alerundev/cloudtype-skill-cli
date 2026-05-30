@@ -36,17 +36,15 @@ ctype whoami                      # 인증 + 로그인 계정
 ctype use                         # 현재 컨텍스트 (project:stage on cluster)
 ```
 
-CLI 미설치 시:
+CLI 미설치 시 `npm i -g @cloudtype/cli`. 미인증 시 `ctype login -t "$CLOUDTYPE_APIKEY"` (환경변수 주입을 권장). 키 발급은 콘솔에서만 가능합니다.
+
+배포 직전 같은 stage 에 동일 이름의 deployment 가 이미 존재하는지 확인합니다.
+
 ```bash
-npm i -g @cloudtype/cli
+ctype list                        # 현재 stage 의 deployment 목록
 ```
 
-미인증 시 (API 키가 환경변수로 주입되어 있다면 권장):
-```bash
-ctype login -t "$CLOUDTYPE_APIKEY"
-```
-
-API 키가 없다면 `ctype login` 으로 username/password 흐름 안내. 키 발급은 콘솔에서만 가능합니다.
+같은 이름이 있으면 자동 진행하지 말고 사용자에게 확인합니다 — "이미 같은 이름의 서비스(`<name>`)가 존재합니다. 이 서비스에 재배포할까요, 아니면 다른 이름으로 새로 만들까요?"
 
 ---
 
@@ -103,10 +101,20 @@ ctype use                                  # 현재 컨텍스트 확인
 ctype use @<scope>/<project>:<stage>       # 다른 프로젝트/스테이지로 전환
 ```
 
-프로젝트가 없으면:
+프로젝트가 없으면 새로 생성합니다. `ctype project create` 는 scope 와 cluster 를 인자로 받아야 합니다.
+
 ```bash
-ctype project create <name>                # 새 프로젝트 생성
+# scope = ctype whoami 의 계정 이름 (또는 팀 스코프)
+# cluster = 아래 호출로 조회
+curl -sS -H "Authorization: Bearer $CLOUDTYPE_APIKEY" \
+  "https://api.cloudtype.io/scope/<scope>/cluster"
+# → [{ "name": "<cluster-name>", ... }]   # 일반적으로 결과 1개
+
+ctype project create <name> -s <scope> -c <cluster-name>
+ctype use @<scope>/<name>:main             # 생성 후 컨텍스트 전환
 ```
+
+사용자가 어느 클러스터를 쓰는지 신경 쓸 필요는 없습니다. Cloudtype 이 계정에 맞는 클러스터를 자동으로 노출하며 (보통 1개), `project create` 가 인자를 요구하므로 위 조회 → 사용 흐름이 필요할 뿐입니다.
 
 ### 2. `app.yaml` 작성
 
@@ -124,13 +132,20 @@ ctype apply -a                             # 모든 stage 에 적용
 
 ### 4. 결과 확인
 
+`ctype apply` 의 성공 출력은 **요청 접수일 뿐 완료가 아닙니다**. 빌드와 시작 단계를 거쳐야 합니다.
+
 ```bash
 ctype list                                 # stage 의 모든 deployment + 상태
 ctype routes                               # HTTP/TCP 라우트 + URL
-ctype services                             # 서비스 풀 사용 상태
 ```
 
-배포 직후 status 가 `Running` 으로 안정될 때까지 몇 십 초 걸릴 수 있습니다.
+완료 조건:
+
+- `ctype list` 의 status 가 `Running`
+- `ctype routes` 에 HTTP 엔드포인트가 노출되어 있고 상태가 `bound`
+- 해당 URL 에 HTTP GET 시 2xx / 3xx 응답
+
+세 조건이 모두 충족되기 전까지는 완료로 보고하지 않습니다. 빌드 + 시작은 보통 몇 십 초 ~ 몇 분 걸립니다. status 가 `Stopped` 로 떨어지거나 `unknown` 이 길어지면 다음 "실패 대응" 절차로 들어갑니다.
 
 ### 5. 재배포 / 업데이트
 
@@ -162,12 +177,28 @@ env:
     secret: DB_PASSWORD         # 시크릿 참조 (stage secret store 의 키 이름)
 ```
 
-**시크릿 참조 규칙**: `secret:` 형태의 참조는 **오직 `options.env[]` / `options.buildenv[]` 항목 안에서만** 동작합니다. 그 외 모든 `options.*` 필드 (예: DB preset 의 `rootpassword`) 에는 **plain 문자열만** 넣으세요.
+### 민감 값 자동 이전
 
-**DB 배포 권장 패턴**:
+이름이 다음 패턴에 해당하는 env 는 **평문 `value:` 대신 시크릿 참조 (`secret:`)** 를 사용합니다. 패스워드, 토큰, API 키, DB 연결 문자열 같은 민감 값이 `app.yaml` 평문으로 저장되거나 git 에 커밋되는 것을 막기 위해서입니다.
+
+| 패턴 | 처리 |
+|---|---|
+| `*PASSWORD*`, `*SECRET*`, `*TOKEN*`, `*KEY*`, `*PWD*`, `*PRIVATE*`, `*AUTH*` | 무조건 `ctype stage secret` 으로 저장 후 `env[]` 에서 `secret:` 참조 |
+| `*URL*`, `*HOST*` | 값에 인증 정보가 포함된 경우 (`postgresql://user:PASS@...` 등) 동일 처리 |
+| `NODE_ENV`, `LOG_LEVEL`, `PORT` 등 단순 플래그 | 평문 `value:` 로 유지 |
+
+`DATABASE_URL` 같이 자격증명이 포함된 연결 문자열도 평문 금지 — 전체 URL 을 한 키로 `ctype stage secret DATABASE_URL "postgresql://root:pw@..."` 저장 후 참조합니다.
+
+### 시크릿 참조 규칙
+
+`secret:` 형태의 참조는 **오직 `options.env[]` / `options.buildenv[]` 항목 안에서만** 동작합니다. 그 외 모든 `options.*` 필드 (예: DB preset 의 `rootpassword`) 에는 **plain 문자열만** 넣으세요.
+
+### DB 배포 권장 패턴
+
 1. 강한 패스워드 생성 → DB preset 의 `rootpassword` 에 plain 으로 넣고 배포
 2. 같은 패스워드를 `ctype stage secret DB_PASSWORD <값>` 로 저장
-3. 앱 서비스의 `app.yaml` 의 `env[]` 에서 `{ name: DB_PASSWORD, secret: DB_PASSWORD }` 로 참조
+3. 같은 평문으로 `ctype stage secret DATABASE_URL "postgresql://root:<값>@<host>:<port>/<db>"` 도 저장
+4. 앱 서비스의 `app.yaml` 의 `env[]` 에서 `{ name: DATABASE_URL, secret: DATABASE_URL }` 로 참조
 
 ---
 
@@ -245,29 +276,42 @@ Cloudtype 환경 컨벤션 중 자주 놓치는 것: Cloudtype 은 ingress 뒤�
 - 빌드 산출물의 파일 구조가 예상과 맞는지
 - 로그 파일이 컨테이너 내부 어디에 쌓이는지
 
-### 4. 수정 후 재배포
+### 4. 원인별 처리
 
-`app.yaml` 또는 stage secret/variable 만 수정 후:
-```bash
-ctype apply                                # 같은 deployment 에 재배포
-```
+**원인이 Cloudtype 설정에서 명확한 경우** (예: `healthz` 경로 잘못, `start` 명령 오류, env 누락):
 
-코드 자체에 문제가 있으면 — repo 에 수정 푸시 후 `ctype update <deployment>`.
+- 변경 사유와 변경 내용을 사용자에게 한 줄로 **먼저 보고**
+- 같은 deployment 의 `app.yaml` 만 조정 후 `ctype apply` 재호출
+- 옵션만 조정. 다른 preset 으로 갈아타거나 새 deployment 이름 사용 금지.
 
-**3회 시도 한도** — 같은 종류 실패가 3회 반복되면 자동 재시도 중단하고 사용자에게 보고.
+**원인이 코드 측이거나 불명확한 경우**:
+
+- 위치와 수정 방향을 사용자에게 안내합니다 (예: "`src/server.js` 의 `process.exit(1)` 분기가 DB 준비 전에 실행됩니다").
+- 사용자가 코드 수정을 명시적으로 요청한 경우에만 수정 흐름으로 진행합니다. 그 외에는 안내만 하고 멈춥니다.
+
+### 5. 재배포
+
+`app.yaml` 또는 stage secret/variable 수정 후 `ctype apply` 로 재배포합니다. repo 의 코드를 갱신했고 spec 변경이 없으면 `ctype update <deployment>` 로 최신 커밋 재빌드.
+
+`ctype apply` 후 반드시 "4. 결과 확인" 의 완료 조건을 다시 점검합니다. apply 출력만 보고 완료로 처리하지 않습니다.
+
+### 6. 재시도 한도
+
+같은 처방으로 3회 시도해도 같은 실패가 반복되면 자동 재시도를 중단하고 사용자에게 보고합니다 — "동일한 패턴으로 3회 연속 실패했습니다. 코드 수정 또는 운영 채널 문의가 필요해 보입니다." "같은 처방" 은 동일 deployment 의 동일 옵션 변경 묶음을 의미하며, 다른 preset 으로 갈아타거나 새 deployment 를 만드는 행위는 재시도가 아닌 **새 결정**입니다 — `⛔ 사용자 확인이 필요한 결정` 의 항목.
 
 ---
 
 ## ⛔ 사용자 확인이 필요한 결정
 
-다음 동작은 자동으로 수행하지 않고 사용자 명시 확인 후에만 실행합니다.
+다음 동작은 자동으로 수행하지 않고 사용자에게 옵션을 제시한 뒤 명시 확인 후에만 실행합니다. 실패 대응 중에도 동일하게 적용됩니다.
 
 - 다른 preset 으로 갈아타기 (예: `web` 실패 → `dockerfile` 로 재배포)
 - 새 deployment 이름으로 별도 서비스 생성 (예: `web` 실패 → `docker-web` 새로 만들기)
-- 리소스 사양 조정 (`cpu` / `memory` / `disk` / `replicas` — 자세한 정책은 "리소스 정책" 섹션)
+- 리소스 사양 조정 (`cpu` / `memory` / `disk` / `replicas` — 자세한 정책은 "리소스 정책" 섹션). 에러 메시지에 나온 숫자를 그대로 박지 마세요.
+- 풀 종류 변경 (`spot: true` ↔ `spot: false`)
 - Dockerfile 자동 생성 또는 인라인 주입
 - 시크릿 덮어쓰기 (이미 존재하는 키)
-- 풀 종류 변경 (`spot: true` ↔ `spot: false`)
+- 소스코드 수정 (위치와 방향만 안내, 수정 자체는 사용자 요청 시에만)
 - 삭제 (`ctype remove`, 프로젝트 / 스테이지 삭제)
 
 ---
