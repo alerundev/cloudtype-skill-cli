@@ -15,7 +15,7 @@ allowed-tools: Bash(ctype:*), Bash(npm:*), Bash(npx:*), Bash(which:*), Bash(curl
 
 GitHub 저장소를 [Cloudtype](https://cloudtype.io) 에 배포하고, 같은 deployment 의
 로그·설정·셸 을 활용해 문제 해결을 시도하는 스킬입니다. 모든 작업은 공식 CLI (`ctype`) 로
-수행하며, 별도의 HTTP 클라이언트 / API 직접 호출 / SDK 가 필요하지 않습니다.
+수행합니다.
 
 배포 자체는 본질적으로 *"`.cloudtype/app.yaml` 작성 → `ctype apply`"* 로 끝납니다.
 실패 시에도 다른 preset 으로 갈아타거나 새 서비스를 만들지 않고, 동일 deployment 의
