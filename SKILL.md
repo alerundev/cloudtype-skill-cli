@@ -220,22 +220,20 @@ ctype logs <deployment> -p                 # 이전 컨테이너 로그 (재시�
 
 ### 2. 진단
 
-| 증상 | 점검 포인트 |
-|---|---|
-| `OOMKilled` | 메모리 부족. 사용자에게 `resources.memory` 증설 또는 코드 메모리 사용 조정 옵션 제시. |
-| 빌드 실패 (`npm install` 등) | install 명령, 의존성, Node 버전 확인. `app.yaml` 의 `app:` (예: `node@24`) 와 repo 의 `engines.node` 일치 여부. |
-| 헬스체크 실패 | `healthz` 경로가 실제 서버 라우트와 일치하는지. 시작 시간이 길면 `initialDelaySeconds` 또는 healthz 비활성화 옵션. |
-| `X-Forwarded-For` validation 에러 (Express) | `app.set('trust proxy', 1)` 필요. Cloudtype 은 ingress 뒤에 있음. |
+로그를 읽고 원인을 추론합니다. 일반적인 빌드/실행 오류는 로그가 충분한 단서를 줍니다.
 
-### 3. 셸 진입
+Cloudtype 환경 컨벤션 중 자주 놓치는 것: Cloudtype 은 ingress 뒤에 있으므로 `X-Forwarded-For` 헤더가 들어옵니다. Express `trust proxy` 같은 프록시 인지 옵션이 꺼져 있으면 rate limiter 등에서 validation 에러가 발생할 수 있습니다.
 
-```bash
-ctype terminal <deployment>                # 실행 중 컨테이너에 셸 진입
-```
+### 3. 컨테이너 안 직접 확인
 
-- 환경변수 확인 (`env`)
-- DB 연결 테스트 (`psql $DATABASE_URL -c "SELECT 1"`)
-- 파일 시스템 / 로그 디렉토리 직접 확인
+`ctype terminal <deployment>` 로 실행 중인 컨테이너 안에 들어가 상태를 직접 확인합니다. 컨테이너는 격리된 환경이며 패키지 설치나 시스템 권한 변경은 불가능합니다. 환경변수·파일·내부 연결 확인 같은 **조회/검증 작업**에 사용합니다.
+
+확인할 만한 것:
+
+- 환경변수가 의도대로 들어왔는지 (`env` 등)
+- DB / 캐시 호스트로 네트워크가 닿는지
+- 빌드 산출물의 파일 구조가 예상과 맞는지
+- 로그 파일이 컨테이너 내부 어디에 쌓이는지
 
 ### 4. 수정 후 재배포
 
