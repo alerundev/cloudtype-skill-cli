@@ -1,14 +1,12 @@
 ---
 name: cloudtype-cli
 description: >
-  Deploy and operate services on Cloudtype using the official `ctype` CLI:
-  create projects, deploy apps and databases from GitHub repos, manage
-  environment variables and secrets, stream logs, exec into containers,
-  and troubleshoot failures. Use this skill whenever the user mentions
-  Cloudtype, `ctype`, deploying to Korea/Seoul, the `cloudtype.app`
-  domain, or asks to deploy a service / database / Redis / Postgres /
-  MongoDB on a Korean PaaS — even if they don't say "Cloudtype" explicitly.
-allowed-tools: Bash(ctype:*), Bash(npm:*), Bash(npx:*), Bash(which:*), Bash(curl:*), Bash(git:*), Bash(gh:*)
+  Cloudtype 에 서비스를 배포하고 운영합니다 (프로젝트 생성, GitHub repo 에서
+  앱·DB 배포, 환경변수·시크릿 관리, 로그 스트리밍, 컨테이너 셸 접근, 장애 진단).
+  사용자가 Cloudtype, ctype, cloudtype.app 도메인을 언급하거나 서비스/데이터베이스/
+  Redis/Postgres/MongoDB 배포를 요청할 때 사용합니다 — "Cloudtype" 단어를 명시적으로
+  말하지 않더라도 동일하게 적용됩니다.
+allowed-tools: Bash(ctype:*), Bash(curl:*), Bash(npm:*), Bash(which:*)
 ---
 
 # Cloudtype CLI
@@ -58,30 +56,12 @@ API 키가 없다면 `ctype login` 으로 username/password 흐름 안내. 키 �
 
 | 항목 | 디폴트 / 추론 방식 |
 |---|---|
-| repo | 사용자가 정확한 URL 을 주지 않은 경우 Cloudtype 에 연동된 GitHub 의 repo 목록을 조회하여 이름 매칭. 후보가 하나면 진행, 여러 개면 선택지 제시. (아래 "GitHub repo 자동 조회" 참고) |
+| repo | 사용자가 정확한 URL 을 주지 않은 경우 Cloudtype 에 연동된 GitHub 의 repo 목록을 조회하여 이름 매칭. 후보가 하나면 진행, 여러 개면 선택지 제시. ("GitHub 연동" 섹션 참고) |
 | branch | 명시 없으면 `main` |
 | project | 명시 없으면 repo 이름. 없으면 `ctype project create <name>` 으로 생성 |
 | stage | 명시 없으면 `main` |
 | deployment 이름 | 명시 없으면 repo 이름 (소문자 + 하이픈 정규화) |
 | 옵션 | 사용자가 명시한 항목만 `app.yaml` 에 포함. 나머지는 서버 디폴트에 맡깁니다. |
-
-### GitHub repo 자동 조회
-
-사용자가 정확한 URL 대신 대략적인 이름만 말한 경우 (예: "내 주소 축약기 배포") Cloudtype 에 연동된 GitHub 계정의 repo 목록을 조회하여 이름으로 매칭합니다. 후보가 하나면 그대로 진행, 여러 개면 선택지를 제시합니다. 후보가 없으면 콘솔에서 해당 repo 를 GitHub 연동에 추가하도록 안내합니다.
-
-조회는 Cloudtype HTTP API 로 수행합니다 (CLI 가 노출하지 않는 영역).
-
-```bash
-curl -sS -H "Authorization: Bearer $CLOUDTYPE_APIKEY" \
-  https://api.cloudtype.io/oauth/github/accounts
-# → [{ "installationid": <ID>, "name": "<github-username>", ... }]
-
-curl -sS -H "Authorization: Bearer $CLOUDTYPE_APIKEY" \
-  "https://api.cloudtype.io/oauth/github/repository/<installationid>"
-# → [{ "name": ..., "url": ..., "defaultbranch": ..., ... }, ...]
-```
-
-확정된 `url` 을 `app.yaml` 의 `context.git.url` 에 사용합니다.
 
 ### 추론 디폴트 (사용자 명시가 있으면 그게 절대 우선)
 
@@ -132,51 +112,9 @@ Cloudtype 이 사용자 계정에 맞는 클러스터를 자동으로 선택합�
 
 ### 2. `app.yaml` 작성
 
-기본 위치: `.cloudtype/app.yaml`. 다른 경로 가능하면 `-f` 로 지정.
+기본 위치는 `.cloudtype/app.yaml` 이며, 다른 경로는 `-f` 로 지정합니다.
 
-**Node.js 앱 예시 (GitHub 연동):**
-
-```yaml
-name: my-api
-app: node@24
-options:
-  ports: "3000"
-  start: npm start
-  install: npm ci
-  buildenv: []
-  env:
-    - name: NODE_ENV
-      value: production
-    - name: DB_PASSWORD
-      secret: DB_PASSWORD
-  healthz: /
-context:
-  git:
-    url: https://github.com/<owner>/<repo>
-    ref: main
-  preset: node
-```
-
-**PostgreSQL 예시:**
-
-```yaml
-name: postgresql
-app: postgresql@16
-options:
-  rootusername: root
-  rootpassword: "<생성한-평문-패스워드>"
-```
-
-> ⚠️ `rootpassword` 자리에는 **plain 문자열만**. `{secret: ...}` 같은 객체 안 됨.
-
-**Redis 예시:**
-
-```yaml
-name: redis
-app: redis@7
-options:
-  password: ""        # 인증 없음 (내부망에서만 호출 시)
-```
+각 preset 의 필수·선택 필드, 시크릿 참조 규칙, 멀티 서비스 묶기 같은 작성 가이드는 [`reference/yaml-schema.md`](reference/yaml-schema.md) 를 참고합니다. 새 yaml 을 작성하거나 기존 yaml 을 수정할 때 먼저 이 reference 를 읽습니다.
 
 ### 3. 배포
 
@@ -286,13 +224,12 @@ ctype logs <deployment> -p                 # 이전 컨테이너 로그 (재시�
 
 | 증상 | 점검 포인트 |
 |---|---|
-| `[ServiceError] secret value must be a string` | `app.yaml` 의 `options.*` 에 객체가 들어갔는지 확인. 시크릿 참조는 `env[]` 안에서만. |
 | `OOMKilled` | 메모리 부족. 사용자에게 `resources.memory` 증설 또는 코드 메모리 사용 조정 옵션 제시. |
 | 빌드 실패 (`npm install` 등) | install 명령, 의존성, Node 버전 확인. `app.yaml` 의 `app:` (예: `node@24`) 와 repo 의 `engines.node` 일치 여부. |
 | 헬스체크 실패 | `healthz` 경로가 실제 서버 라우트와 일치하는지. 시작 시간이 길면 `initialDelaySeconds` 또는 healthz 비활성화 옵션. |
 | `X-Forwarded-For` validation 에러 (Express) | `app.set('trust proxy', 1)` 필요. Cloudtype 은 ingress 뒤에 있음. |
 
-### 3. 셸 진입 (디버깅의 결정타)
+### 3. 셸 진입
 
 ```bash
 ctype terminal <deployment>                # 실행 중 컨테이너에 셸 진입
@@ -331,7 +268,25 @@ ctype apply                                # 같은 deployment 에 재배포
 
 ## 🧰 GitHub 연동
 
-Cloudtype 콘솔에서 사용자가 한 번 GitHub OAuth 연동을 해두면, 이후 이 스킬은 `/oauth/github/*` 로 repo 목록·브랜치를 조회하고, `app.yaml` 의 `context.git.url` 에 박힌 repo 를 Cloudtype 이 자동으로 클론·빌드합니다. push 시 webhook 으로 자동 재빌드됩니다.
+Cloudtype 콘솔에서 사용자가 한 번 GitHub OAuth 연동을 해두면, 이후 이 스킬은 동일한 `CLOUDTYPE_APIKEY` 로 GitHub repo 목록·브랜치를 조회할 수 있고, `app.yaml` 의 `context.git.url` 에 박힌 repo 를 Cloudtype 이 자동으로 클론·빌드합니다. push 시 webhook 으로 자동 재빌드됩니다.
+
+### Repo 조회
+
+사용자가 정확한 URL 대신 대략적인 이름만 말한 경우 (예: "내 주소 축약기 배포") 다음 흐름으로 repo 를 확정합니다.
+
+```bash
+curl -sS -H "Authorization: Bearer $CLOUDTYPE_APIKEY" \
+  https://api.cloudtype.io/oauth/github/accounts
+# → [{ "installationid": <ID>, "name": "<github-username>", ... }]
+
+curl -sS -H "Authorization: Bearer $CLOUDTYPE_APIKEY" \
+  "https://api.cloudtype.io/oauth/github/repository/<installationid>"
+# → [{ "name": ..., "url": ..., "defaultbranch": ..., ... }, ...]
+```
+
+결과 목록에서 사용자 발화의 키워드와 이름·설명을 매칭하여 후보를 도출합니다. 후보가 하나면 그대로 진행, 여러 개면 선택지를 제시합니다. 후보가 없거나 `/oauth/github/accounts` 가 빈 결과인 경우 콘솔에서 해당 repo 를 GitHub 연동에 추가하도록 안내합니다.
+
+확정된 `url` 을 `app.yaml` 의 `context.git.url` 에 사용합니다.
 
 ```yaml
 context:
@@ -340,9 +295,11 @@ context:
     ref: main
 ```
 
-GitHub 연동 설치/해제는 사용자가 콘솔에서 수행합니다. 연동되지 않은 repo 라면 콘솔에서 추가하도록 안내합니다.
+### 책임 경계
 
-이 스킬은 push 가 끝난 시점부터 진입합니다. 코드 작성, 새 GitHub repo 생성, `git push` 는 호출하는 상위 에이전트의 영역입니다.
+이 스킬은 push 가 끝난 시점부터 진입합니다. 코드 작성, 새 GitHub repo 생성, `git push` 는 호출하는 상위 에이전트와 그 에이전트의 GitHub 인증 (PAT 또는 OAuth) 영역입니다.
+
+GitHub 연동 설치/해제는 사용자가 콘솔에서 수행합니다. 연동되지 않은 repo 라면 콘솔에서 추가하도록 안내합니다.
 
 ---
 
