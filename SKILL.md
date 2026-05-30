@@ -173,18 +173,28 @@ env:
 
 ## 🎟️ 리소스 정책
 
-`app.yaml` 의 `resources` 에는 **풀 종류만** 명시합니다. `cpu` / `memory` / `disk` 는 사용자가 명시한 경우에만 포함합니다. LLM 상식 추측 금지 — preset 별 디폴트 배분 (특히 프리티어 1GB 한도) 을 깨고 후속 배포를 막을 수 있습니다.
+배포 직전 잔여 리소스를 조회한 뒤 풀을 선택합니다.
 
-```yaml
-resources:
-  spot: true        # 프리티어 풀
-  # spot: false     # 구독 풀
+```bash
+curl -sS -H "Authorization: Bearer $CLOUDTYPE_APIKEY" \
+  https://api.cloudtype.io/scope/<scope>/resource/available
 ```
 
-풀 선택:
-- 사용자가 명시한 풀을 그대로 사용
-- 명시 없으면 구독 풀(`spot: false`) 우선, 없으면 프리티어 풀(`spot: true`)
-- 자동 선택 결과가 프리티어 풀인 경우 완료 보고에 운영 특성 안내 (주기적 자동 중지 등)
+응답에는 두 풀의 가용량이 들어 있습니다.
+
+- 구독 풀: `cpu` / `memory` / `disk` / `running`
+- 프리티어 풀: `spot.cpu` / `spot.memory` / `spot.disk` / `spot.running`
+
+풀 선택 순서:
+
+1. 사용자가 풀을 명시했으면 그대로 사용 (절대 우선).
+2. 사용자 명시가 없고 구독 풀의 `cpu`·`memory`·`disk`·`running` 가 모두 양수면 **구독 풀** (`spot: false`).
+3. 구독 풀이 부족하고 프리티어 풀이 양수면 프리티어 풀 (`spot: true`). 완료 보고에 프리티어 풀 사용을 명시하고 운영 특성 (주기적 자동 중지 등) 을 안내합니다.
+4. 양쪽 다 부족하면 배포를 시도하지 않고 사용자에게 알립니다 — 콘솔에서 구독 추가 또는 기존 서비스 정리가 필요합니다.
+
+`cpu` / `memory` / `disk` 같은 세부 사양은 사용자가 명시한 경우에만 `app.yaml` 에 포함합니다. LLM 상식 추측 금지 — preset 별 디폴트 배분 (특히 프리티어 1GB 한도) 을 깨고 후속 배포를 막을 수 있습니다.
+
+`app.yaml` 의 `resources` 필드 형식은 [`reference/yaml-schema.md`](reference/yaml-schema.md) 참고.
 
 ---
 
