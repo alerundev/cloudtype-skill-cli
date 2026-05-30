@@ -13,12 +13,9 @@ allowed-tools: Bash(ctype:*), Bash(npm:*), Bash(npx:*), Bash(which:*), Bash(curl
 
 # Cloudtype CLI
 
-GitHub 저장소를 [Cloudtype](https://cloudtype.io) 에 배포하고, 같은 deployment 의
-로그·설정·셸 을 활용해 문제 해결을 시도하는 스킬입니다. 주력은 공식 CLI (`ctype`) — 배포·로그·셸·환경변수 등 모든 인프라 작업. CLI 가 노출하지 않는 GitHub repo 자동 조회 같은 일부 보조 기능은 Cloudtype HTTP API 를 직접 호출합니다 (같은 `CLOUDTYPE_APIKEY` 사용).
+GitHub 저장소를 [Cloudtype](https://cloudtype.io) 에 배포하고, 같은 deployment 의 로그·설정·셸을 활용해 문제 해결을 시도합니다. 배포·로그·셸·환경변수 등 인프라 작업은 공식 CLI (`ctype`) 로 수행하며, CLI 가 노출하지 않는 일부 조회 기능 (예: GitHub repo 목록) 은 동일한 `CLOUDTYPE_APIKEY` 로 Cloudtype HTTP API 를 호출합니다.
 
-배포 자체는 본질적으로 *"`.cloudtype/app.yaml` 작성 → `ctype apply`"* 로 끝납니다.
-실패 시에도 다른 preset 으로 갈아타거나 새 서비스를 만들지 않고, 동일 deployment 의
-로그를 보고 `app.yaml` 을 수정한 뒤 `ctype apply` 를 다시 호출하는 흐름으로 처리합니다.
+배포는 본질적으로 `.cloudtype/app.yaml` 작성 후 `ctype apply` 한 번으로 끝납니다. 실패 시에도 다른 preset 으로 갈아타거나 새 서비스를 만들지 않고, 동일 deployment 의 로그를 보고 `app.yaml` 을 수정한 뒤 다시 `ctype apply` 합니다.
 
 ---
 
@@ -28,22 +25,6 @@ GitHub 저장소를 [Cloudtype](https://cloudtype.io) 에 배포하고, 같은 d
 
 이 스킬의 책임은 **배포 부분에 한정**됩니다.
 시스템 설계, 코드 작성, 푸시 같은 상위 작업은 상위 에이전트가 담당합니다.
-
----
-
-## 🚫 절대 하지 않는 것
-
-사용자가 명시적으로 요청하지 않은 한 다음은 직접 수행하지 않습니다.
-
-- **소스코드 직접 수정** — 위치와 수정 방향만 안내합니다.
-- **다른 preset 으로 갈아타기** — 예: `web` 실패 → `dockerfile` 로 재배포 (금지)
-- **새 deployment 이름으로 별도 서비스 생성하여 우회** — 예: `web` 실패 → `docker-web` 새로 만들기 (금지)
-- **Dockerfile 자동 생성 또는 인라인 주입** — 사용자가 명시적으로 요청한 경우에만 사용합니다.
-- **리소스 사양 자동 조정** — `cpu` / `memory` / `disk` / `replicas` 같은 세부 사양은 사용자가 명시한 경우에만 `app.yaml` 의 `resources` 에 포함합니다. 자동 증설/축소 금지.
-- **시크릿 조회** — 필요 시 Cloudtype 콘솔 사용을 안내합니다.
-- **삭제 (서비스 / 프로젝트 / 스테이지)** — `ctype remove` 는 사용자 명시 확인 후에만 실행합니다.
-- **GitHub 연동 설정 변경** — 이미 연결된 상태를 활용만 합니다.
-- **구독 / 결제 / 리소스 풀 구매** — 사용자가 콘솔에서 직접 처리합니다.
 
 ---
 
@@ -86,45 +67,21 @@ API 키가 없다면 `ctype login` 으로 username/password 흐름 안내. 키 �
 
 ### GitHub repo 자동 조회
 
-사용자가 "내 주소 축약기 배포해줘" 같이 **대략적인 이름**만 말한 경우, Cloudtype 콘솔에서 이미 연동된 GitHub 계정의 repo 목록을 조회하여 매칭합니다. **사용자가 GitHub PAT 를 따로 박지 않아도** 작동합니다 (Cloudtype 콘솔의 GitHub OAuth 연동이 이미 된 상태가 전제).
+사용자가 정확한 URL 대신 대략적인 이름만 말한 경우 (예: "내 주소 축약기 배포") Cloudtype 에 연동된 GitHub 계정의 repo 목록을 조회하여 이름으로 매칭합니다. 후보가 하나면 그대로 진행, 여러 개면 선택지를 제시합니다. 후보가 없으면 콘솔에서 해당 repo 를 GitHub 연동에 추가하도록 안내합니다.
 
-CLI 가 이 조회 명령을 노출하지 않으므로 보조적으로 Cloudtype HTTP API 를 직접 호출합니다.
+조회는 Cloudtype HTTP API 로 수행합니다 (CLI 가 노출하지 않는 영역).
 
 ```bash
-# 1) GitHub 연동 여부 확인 (없으면 사용자에게 콘솔에서 연동하라고 안내)
-curl -sS -H "Authorization: Bearer $CLOUDTYPE_APIKEY" \
-  https://api.cloudtype.io/oauth/github/has
-
-# 2) 연결된 GitHub 계정 / installation 목록
 curl -sS -H "Authorization: Bearer $CLOUDTYPE_APIKEY" \
   https://api.cloudtype.io/oauth/github/accounts
 # → [{ "installationid": <ID>, "name": "<github-username>", ... }]
 
-# 3) 해당 installation 의 repo 목록 (이름·풀URL·기본브랜치 포함)
 curl -sS -H "Authorization: Bearer $CLOUDTYPE_APIKEY" \
   "https://api.cloudtype.io/oauth/github/repository/<installationid>"
-# → [{ "name": "url-shortener", "url": "https://github.com/.../url-shortener.git",
-#       "defaultbranch": "main", ... }, ...]
-
-# 4) (필요 시) 특정 repo 의 브랜치 목록
-curl -sS -H "Authorization: Bearer $CLOUDTYPE_APIKEY" \
-  "https://api.cloudtype.io/oauth/github/repository/<installationid>/<repo>/branch"
+# → [{ "name": ..., "url": ..., "defaultbranch": ..., ... }, ...]
 ```
 
-매칭 흐름:
-
-1. 사용자 발화에서 키워드 추출 ("주소 축약기" / "url shortener" / "주소축약" → "url-shortener")
-2. repo 목록에서 이름/설명/일치도 기반 후보 도출
-3. **후보 1개면 자동 진행** (사용자 확인 생략 — 마찰 감소)
-4. 후보 여러 개면 사용자에게 선택지 제시
-5. 후보 0개면 — Cloudtype 콘솔에서 해당 repo 를 GitHub 연동에 추가하라고 안내
-
-확정된 `url` 을 `app.yaml` 의 `context.git.url` 에 그대로 사용합니다.
-
-### 진입 모드 (이 스킬이 호출되는 두 가지 경우)
-
-1. **이미 GitHub 에 있는 repo 의 배포 / 재배포 / 오류 수정**: 위 자동 조회 흐름으로 repo 확정 → `app.yaml` → `ctype apply`
-2. **상위 에이전트가 코드 생성 + GitHub push 까지 한 뒤 배포 위임**: push 가 끝난 시점에 진입. 코드 생성·repo 생성·`git push` 는 **이 스킬의 책임이 아님** — 상위 에이전트와 그 에이전트의 GitHub 인증 (PAT 또는 OAuth) 영역.
+확정된 `url` 을 `app.yaml` 의 `context.git.url` 에 사용합니다.
 
 ### 추론 디폴트 (사용자 명시가 있으면 그게 절대 우선)
 
@@ -134,7 +91,7 @@ curl -sS -H "Authorization: Bearer $CLOUDTYPE_APIKEY" \
 | 백엔드 언어/런타임 미명시 (그리고 repo 신호도 없을 때) | `node` (Node.js) |
 | 추가 인프라 (캐시/큐) 미명시 | 추가하지 않음 — 사용자가 명시한 서비스만 배포 |
 
-이 디폴트는 마찰 감소용입니다. 사용자 명시 (예: "mysql 로 해줘", "python flask 백엔드") 가 있으면 **그 선택이 절대 우선**이며 디폴트로 덮어쓰지 않습니다. **디폴트를 적용했다면 완료 보고에 반드시 명시**합니다.
+사용자가 명시한 선택은 절대 우선이며 디폴트로 덮어쓰지 않습니다 (예: "mysql 로 해줘", "python flask 백엔드"). 디폴트를 적용한 경우 완료 보고에 어떤 디폴트가 적용됐는지 명시합니다.
 
 ⚠️ **사용자가 catalog 에 없는 것을 명시한 경우** (예: "mysql" → catalog 는 `mariadb` 만 있음) 는 디폴트 규칙이 아니라 "호환 대체 제안 + 사용자 확인" 경로로 이동합니다.
 
@@ -358,27 +315,23 @@ ctype apply                                # 같은 deployment 에 재배포
 
 ---
 
-## ⛔ 자동으로 분기하지 않는 결정
+## ⛔ 사용자 확인이 필요한 결정
 
-다음 결정은 사용자 확인 후에만 실행합니다.
+다음 동작은 자동으로 수행하지 않고 사용자 명시 확인 후에만 실행합니다.
 
-- 다른 preset 으로 갈아타기
-- 새 deployment 이름으로 별도 서비스 생성
-- 리소스 사양 조정 (`cpu` / `memory` / `disk` / `replicas`)
-- Dockerfile 자동 생성
+- 다른 preset 으로 갈아타기 (예: `web` 실패 → `dockerfile` 로 재배포)
+- 새 deployment 이름으로 별도 서비스 생성 (예: `web` 실패 → `docker-web` 새로 만들기)
+- 리소스 사양 조정 (`cpu` / `memory` / `disk` / `replicas` — 자세한 정책은 "리소스 정책" 섹션)
+- Dockerfile 자동 생성 또는 인라인 주입
 - 시크릿 덮어쓰기 (이미 존재하는 키)
 - 풀 종류 변경 (`spot: true` ↔ `spot: false`)
-- 서비스 / 프로젝트 / 스테이지 삭제
+- 삭제 (`ctype remove`, 프로젝트 / 스테이지 삭제)
 
 ---
 
 ## 🧰 GitHub 연동
 
-Cloudtype 콘솔에서 사용자가 한 번 GitHub OAuth 연동을 해두면, 그 이후부터 이 스킬은:
-
-- `/oauth/github/*` (위 "GitHub repo 자동 조회" 섹션) 로 repo 목록·브랜치 조회
-- `app.yaml` 의 `context.git.url` 에 박힌 repo 를 Cloudtype 이 자동으로 클론·빌드 (PAT 불필요)
-- push 시 webhook 으로 자동 재빌드
+Cloudtype 콘솔에서 사용자가 한 번 GitHub OAuth 연동을 해두면, 이후 이 스킬은 `/oauth/github/*` 로 repo 목록·브랜치를 조회하고, `app.yaml` 의 `context.git.url` 에 박힌 repo 를 Cloudtype 이 자동으로 클론·빌드합니다. push 시 webhook 으로 자동 재빌드됩니다.
 
 ```yaml
 context:
@@ -387,10 +340,9 @@ context:
     ref: main
 ```
 
-스킬이 직접 수행하지 않는 것:
+GitHub 연동 설치/해제는 사용자가 콘솔에서 수행합니다. 연동되지 않은 repo 라면 콘솔에서 추가하도록 안내합니다.
 
-- **GitHub 연동 설치/해제** — 사용자가 콘솔에서. 연동 안 된 repo 가 필요하면 사용자에게 콘솔 안내.
-- **새 GitHub repo 생성 / `git push`** — 상위 에이전트와 그 에이전트의 GitHub 인증 (PAT 또는 OAuth) 영역. 이 스킬은 push 가 끝난 시점부터 진입.
+이 스킬은 push 가 끝난 시점부터 진입합니다. 코드 작성, 새 GitHub repo 생성, `git push` 는 호출하는 상위 에이전트의 영역입니다.
 
 ---
 
