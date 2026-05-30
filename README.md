@@ -45,9 +45,10 @@ API 키를 환경변수로 주입하는 것을 권장합니다 (예: 통합 환�
 
 ### 1. 배포된 서비스에 대한 작업 (코드는 이미 GitHub 에 있음)
 
-상위 에이전트는 repo URL 만 넘기고, 스킬은 `app.yaml` 작성 → `ctype apply` → 결과 확인.
+사용자가 대략적인 이름만 말해도 스킬이 **Cloudtype 에 연동된 GitHub repo 목록을 자동 조회**하여 매칭합니다. 사용자가 GitHub PAT 를 따로 박지 않아도 됩니다 (Cloudtype 콘솔의 GitHub OAuth 연동이 이미 된 상태 전제).
 
-- "내 GitHub repo `<owner>/<name>` 을 Cloudtype 에 배포해줘. 메인 브랜치."
+- "내 주소 축약기 repo 배포해줘."
+- "지난번에 푸시한 url-shortener 배포."
 - "마지막 배포가 stopped 됐어. 로그 보고 고쳐줘."
 - "DB 비밀번호를 회전했어. 앱 서비스 환경변수 갱신하고 재배포."
 - "Cloudtype 에 mariadb 하나 띄워줘."

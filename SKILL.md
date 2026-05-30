@@ -14,8 +14,7 @@ allowed-tools: Bash(ctype:*), Bash(npm:*), Bash(npx:*), Bash(which:*), Bash(curl
 # Cloudtype CLI
 
 GitHub 저장소를 [Cloudtype](https://cloudtype.io) 에 배포하고, 같은 deployment 의
-로그·설정·셸 을 활용해 문제 해결을 시도하는 스킬입니다. 모든 작업은 공식 CLI (`ctype`) 로
-수행합니다.
+로그·설정·셸 을 활용해 문제 해결을 시도하는 스킬입니다. 주력은 공식 CLI (`ctype`) — 배포·로그·셸·환경변수 등 모든 인프라 작업. CLI 가 노출하지 않는 GitHub repo 자동 조회 같은 일부 보조 기능은 Cloudtype HTTP API 를 직접 호출합니다 (같은 `CLOUDTYPE_APIKEY` 사용).
 
 배포 자체는 본질적으로 *"`.cloudtype/app.yaml` 작성 → `ctype apply`"* 로 끝납니다.
 실패 시에도 다른 preset 으로 갈아타거나 새 서비스를 만들지 않고, 동일 deployment 의
@@ -78,12 +77,54 @@ API 키가 없다면 `ctype login` 으로 username/password 흐름 안내. 키 �
 
 | 항목 | 디폴트 / 추론 방식 |
 |---|---|
-| repo | 사용자가 정확한 URL 을 주지 않은 경우 `gh repo list` 또는 사용자 확인 후 결정 |
+| repo | 사용자가 정확한 URL 을 주지 않은 경우 Cloudtype 에 연동된 GitHub 의 repo 목록을 조회하여 이름 매칭. 후보가 하나면 진행, 여러 개면 선택지 제시. (아래 "GitHub repo 자동 조회" 참고) |
 | branch | 명시 없으면 `main` |
 | project | 명시 없으면 repo 이름. 없으면 `ctype project create <name>` 으로 생성 |
 | stage | 명시 없으면 `main` |
 | deployment 이름 | 명시 없으면 repo 이름 (소문자 + 하이픈 정규화) |
 | 옵션 | 사용자가 명시한 항목만 `app.yaml` 에 포함. 나머지는 서버 디폴트에 맡깁니다. |
+
+### GitHub repo 자동 조회
+
+사용자가 "내 주소 축약기 배포해줘" 같이 **대략적인 이름**만 말한 경우, Cloudtype 콘솔에서 이미 연동된 GitHub 계정의 repo 목록을 조회하여 매칭합니다. **사용자가 GitHub PAT 를 따로 박지 않아도** 작동합니다 (Cloudtype 콘솔의 GitHub OAuth 연동이 이미 된 상태가 전제).
+
+CLI 가 이 조회 명령을 노출하지 않으므로 보조적으로 Cloudtype HTTP API 를 직접 호출합니다.
+
+```bash
+# 1) GitHub 연동 여부 확인 (없으면 사용자에게 콘솔에서 연동하라고 안내)
+curl -sS -H "Authorization: Bearer $CLOUDTYPE_APIKEY" \
+  https://api.cloudtype.io/oauth/github/has
+
+# 2) 연결된 GitHub 계정 / installation 목록
+curl -sS -H "Authorization: Bearer $CLOUDTYPE_APIKEY" \
+  https://api.cloudtype.io/oauth/github/accounts
+# → [{ "installationid": <ID>, "name": "<github-username>", ... }]
+
+# 3) 해당 installation 의 repo 목록 (이름·풀URL·기본브랜치 포함)
+curl -sS -H "Authorization: Bearer $CLOUDTYPE_APIKEY" \
+  "https://api.cloudtype.io/oauth/github/repository/<installationid>"
+# → [{ "name": "url-shortener", "url": "https://github.com/.../url-shortener.git",
+#       "defaultbranch": "main", ... }, ...]
+
+# 4) (필요 시) 특정 repo 의 브랜치 목록
+curl -sS -H "Authorization: Bearer $CLOUDTYPE_APIKEY" \
+  "https://api.cloudtype.io/oauth/github/repository/<installationid>/<repo>/branch"
+```
+
+매칭 흐름:
+
+1. 사용자 발화에서 키워드 추출 ("주소 축약기" / "url shortener" / "주소축약" → "url-shortener")
+2. repo 목록에서 이름/설명/일치도 기반 후보 도출
+3. **후보 1개면 자동 진행** (사용자 확인 생략 — 마찰 감소)
+4. 후보 여러 개면 사용자에게 선택지 제시
+5. 후보 0개면 — Cloudtype 콘솔에서 해당 repo 를 GitHub 연동에 추가하라고 안내
+
+확정된 `url` 을 `app.yaml` 의 `context.git.url` 에 그대로 사용합니다.
+
+### 진입 모드 (이 스킬이 호출되는 두 가지 경우)
+
+1. **이미 GitHub 에 있는 repo 의 배포 / 재배포 / 오류 수정**: 위 자동 조회 흐름으로 repo 확정 → `app.yaml` → `ctype apply`
+2. **상위 에이전트가 코드 생성 + GitHub push 까지 한 뒤 배포 위임**: push 가 끝난 시점에 진입. 코드 생성·repo 생성·`git push` 는 **이 스킬의 책임이 아님** — 상위 에이전트와 그 에이전트의 GitHub 인증 (PAT 또는 OAuth) 영역.
 
 ### 추론 디폴트 (사용자 명시가 있으면 그게 절대 우선)
 
@@ -333,18 +374,23 @@ ctype apply                                # 같은 deployment 에 재배포
 
 ## 🧰 GitHub 연동
 
-이미 연동되어 있는 상태를 활용만 합니다. 설치/해제는 사용자가 콘솔에서.
+Cloudtype 콘솔에서 사용자가 한 번 GitHub OAuth 연동을 해두면, 그 이후부터 이 스킬은:
 
-`app.yaml` 의 `context.git.url` 에 GitHub URL 을 주면 Cloudtype 이 webhook 으로 푸시 감지하고 자동 빌드합니다 (연동된 repo 에 한해).
+- `/oauth/github/*` (위 "GitHub repo 자동 조회" 섹션) 로 repo 목록·브랜치 조회
+- `app.yaml` 의 `context.git.url` 에 박힌 repo 를 Cloudtype 이 자동으로 클론·빌드 (PAT 불필요)
+- push 시 webhook 으로 자동 재빌드
 
 ```yaml
 context:
   git:
-    url: https://github.com/<owner>/<repo>
+    url: https://github.com/<owner>/<repo>.git
     ref: main
 ```
 
-비공개 repo 라면 콘솔에서 GitHub 연동 설치가 먼저 필요합니다.
+스킬이 직접 수행하지 않는 것:
+
+- **GitHub 연동 설치/해제** — 사용자가 콘솔에서. 연동 안 된 repo 가 필요하면 사용자에게 콘솔 안내.
+- **새 GitHub repo 생성 / `git push`** — 상위 에이전트와 그 에이전트의 GitHub 인증 (PAT 또는 OAuth) 영역. 이 스킬은 push 가 끝난 시점부터 진입.
 
 ---
 
@@ -359,10 +405,15 @@ context:
 
 ## 🔐 인증
 
-이 스킬은 다음 환경에서 동작하도록 설계됐습니다.
+`CLOUDTYPE_APIKEY` 환경변수 하나로 CLI 와 보조 API 호출 둘 다 인증합니다.
 
-- **`CLOUDTYPE_APIKEY` 환경변수가 주입된 경우** (포터 같은 통합 환경): `ctype login -t "$CLOUDTYPE_APIKEY"` 한 번이면 끝
-- **로컬 개발 환경**: 사용자가 콘솔에서 API 키 발급 후 같은 방법
-- **공유/임시 환경**: `ctype login` 의 username/password 흐름
+- **CLI 인증**: `ctype login -t "$CLOUDTYPE_APIKEY"` 한 번 (이후 `ctype whoami` 로 확인)
+- **API 보조 호출**: `Authorization: Bearer $CLOUDTYPE_APIKEY` 헤더로 `curl` 직접 호출 (GitHub repo 조회 등)
 
-`whoami` 로 항상 인증 상태 먼저 확인합니다.
+환경별 권장:
+
+- **통합 환경** (Porter AI 같은 샌드박스): API 키가 환경변수로 미리 주입됨 — 위 한 줄이면 끝
+- **로컬 개발**: 사용자가 콘솔에서 API 키 발급 후 환경변수로 export
+- **공유/임시 환경**: `ctype login` 의 username/password 인터랙티브 흐름
+
+매 작업 전에 `ctype whoami` 로 인증 상태 먼저 확인합니다.
