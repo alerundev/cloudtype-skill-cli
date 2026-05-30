@@ -22,14 +22,11 @@ ctype use @teamname/myproject:main          # 팀 스코프 명시
 
 ```bash
 ctype projects                              # 프로젝트 목록 (현재 scope)
-ctype project create <name>                 # 새 프로젝트 생성 (클러스터 자동 배치)
-# --cluster <name>                           # 일반 사용자가 쓸 일 없음. 계정에 맞는 클러스터는 자동 선택됨.
+ctype project create <name>                 # 새 프로젝트 생성
 ctype project remove <name>                 # 프로젝트 삭제 (확인 후)
 ctype project connect <giturl>              # git repo 연결
 ctype project connect <giturl> -r           # 읽기 전용 연결
 ctype project key <name>                    # SSH 키 생성
-
-ctype clusters                              # 클러스터 조회. yaml 에 명시가 꼭 필요한 예외적 경우에만 사용 — 대부분 불필요.
 ```
 
 ## 배포
